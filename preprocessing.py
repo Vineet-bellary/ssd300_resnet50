@@ -100,4 +100,4 @@ for file_name, info in image_info.items():
 with open("preprocessed_data.json", "w") as f:
     json.dump(image_info, f)
     
-print("Preprocessed data saved to 'preprocessed_data.json'")
+print("Preprocessed data saved to 'preprocessed_data.json'") 

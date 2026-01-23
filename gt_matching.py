@@ -198,3 +198,30 @@ def match_anchors_to_gt(
     return cls_targets, bbox_targets, labels_mask
 
 match_anchors_to_gt
+
+def decode_boxes(pred_locs, anchors):
+    """
+    pred_locs: Tensor [N, 4] (tx, ty, tw, th)
+    anchors: Tensor [N, 4] (cx, cy, w, h)
+
+    returns:
+        decoded_boxes: Tensor [N, 4] (x_min, y_min, x_max, y_max)
+    """
+    # SSD variances (standard)
+    var_xy = 0.1
+    var_wh = 0.2
+
+    cx = anchors[:, 0] + pred_locs[:, 0] * var_xy * anchors[:, 2]
+    cy = anchors[:, 1] + pred_locs[:, 1] * var_xy * anchors[:, 3]
+
+    w = anchors[:, 2] * torch.exp(pred_locs[:, 2] * var_wh)
+    h = anchors[:, 3] * torch.exp(pred_locs[:, 3] * var_wh)
+
+    xmin = cx - 0.5 * w
+    ymin = cy - 0.5 * h
+    xmax = cx + 0.5 * w
+    ymax = cy + 0.5 * h
+
+    boxes = torch.stack([xmin, ymin, xmax, ymax], dim=1)
+
+    return boxes
