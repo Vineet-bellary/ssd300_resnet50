@@ -49,7 +49,7 @@ model.to(DEVICE)
 model.eval()
 
 # LOAD IMAGE
-img = cv2.imread(r"Object-detection-1\test\00023_jpg.rf.6b8cb25da3083af906d32c8fb7f8d40e.jpg")
+img = cv2.imread(r"Object-detection-1\test\FudanPed00032_png.rf.b668b6fc3eb4ac434b762264334a01dc.jpg")
 h, w, _ = img.shape
 
 img_resized = cv2.resize(img, (224, 224))       # assuming model input size is 300x300

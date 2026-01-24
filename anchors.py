@@ -55,9 +55,9 @@ def build_all_anchors():
     # Configurations
     feature_maps = [28, 14, 7]
     scales = {
-        28: [0.1],
-        14: [0.2],
-        7: [0.35]
+        28: [0.35],
+        14: [0.5],
+        7: [0.8]
     }
     aspect_ratios = [1, 2, 0.5]
     all_anchors = []
