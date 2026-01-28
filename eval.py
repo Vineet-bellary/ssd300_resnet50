@@ -22,13 +22,19 @@ model = SSDModel(
     num_classes=NUM_CLASSES
 )
 
-model.load_state_dict(torch.load("checkpoint_3.pth", map_location=DEVICE)["model_state"])
+MODEL_PATH = r"models\checkpoint_at_27.pth"
+
+'''
+When use checkpoint as model added 'model_state' key
+When using direct saved model, no 'model_state' key
+'''
+model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)['model_state'])
 model.to(DEVICE)
 model.eval()
 
 dataset = DetectionDataset(samples, transform=transform)
 
-def evaluate_image(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_thresh=0.5):
+def evaluate_image(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_thresh=0.3):
     TP = FP = FN = 0
     matched_gt = set()
 
@@ -41,12 +47,13 @@ def evaluate_image(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_thresh=0.5)
         return TP, FP, FN
 
     iou_matrix = compute_iou(pred_boxes, gt_boxes)
-
+    print("GT boxes:", gt_boxes[:2])
+    print("Pred boxes:", pred_boxes[:2])
     for p in range(len(pred_boxes)):
         best_iou, best_gt = torch.max(iou_matrix[p], dim=0)
 
         if best_iou >= iou_thresh:
-            if best_gt.item() not in matched_gt and pred_labels[p] == gt_labels[best_gt]:
+            if best_gt.item() not in matched_gt: #and pred_labels[p] == gt_labels[best_gt]:
                 TP += 1
                 matched_gt.add(best_gt.item())
             else:

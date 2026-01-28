@@ -27,8 +27,8 @@ CLASS_LABELS = {
     7: "Truck",
 }
 
-IMAGE_PATH = r"Object-detection-1\train\00044_jpg.rf.702514fdf2d245548ae87cbd091d4ac1.jpg"
-MODEL_PATH = r"models\checkpoint_9.pth"
+IMAGE_PATH = r"Object-detection-1\test\t4_png.rf.b58a940bff92265bdd7c28f7df52d6bf.jpg"
+MODEL_PATH = r"models\checkpoint_at_25.pth"
 
 # ---------------- MODEL ----------------
 backbone = SimpleSSDBackbone()
@@ -40,7 +40,11 @@ model = SSDModel(
     num_classes=NUM_CLASSES
 )
 
-model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)["model_state"])
+'''
+When use checkpoint as model added 'model_state' key
+When using direct saved model, no 'model_state' key
+'''
+model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)['model_state'])
 model.to(DEVICE)
 model.eval()
 

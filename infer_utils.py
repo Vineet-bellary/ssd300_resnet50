@@ -2,7 +2,7 @@ import torch
 from torchvision.ops import nms
 from anchors import build_all_anchors
 
-def infer_one_image(image_tensor, model, device, conf_thresh=0.6, iou_thresh=0.7, top_k=50):
+def infer_one_image(image_tensor, model, device, conf_thresh=0.3, iou_thresh=0.7, top_k=50):
     model.eval()
 
     image_tensor = image_tensor.unsqueeze(0).to(device)

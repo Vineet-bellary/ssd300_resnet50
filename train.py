@@ -21,6 +21,7 @@ ANCHORS_PER_CELL = 6
 BATCH_SIZE = 4
 EPOCHS = 5
 LR = 1e-4
+CHECKPOINT_PATH = "checkpoint.pth"
 
 # -----------------------
 # DATA
@@ -100,8 +101,8 @@ def load_checkpoint(model, optimizer, path="checkpoint.pth"):
 # -----------------------
 start_epoch = 0
 
-if os.path.exists("checkpoint.pth"):
-    start_epoch = load_checkpoint(model, optimizer, path="checkpoint.pth")
+if os.path.exists(CHECKPOINT_PATH):
+    start_epoch = load_checkpoint(model, optimizer, path=CHECKPOINT_PATH)
 
 for epoch in range(start_epoch, EPOCHS):
     print("Starting epoch", epoch+1)
@@ -182,7 +183,7 @@ for epoch in range(start_epoch, EPOCHS):
     
     # Save checkpoint every 2 epochs
     if (epoch + 1) % 2 == 0:
-        save_checkpoint(epoch, model, optimizer, path="checkpoint.pth")
+        save_checkpoint(epoch, model, optimizer, path=CHECKPOINT_PATH)
 
 # -----------------------
 # SAVE MODEL

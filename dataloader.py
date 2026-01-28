@@ -14,7 +14,7 @@ def load_samples(preprocessed_json, image_dir):
     samples = []
 
     for file_name, info in image_info.items():
-        image_path = rf"{image_dir}\{file_name}"
+        image_path = rf"{image_dir}/{file_name}"
         labels = info["labels"]
         bboxes = info["bboxes"]
 
@@ -73,9 +73,9 @@ def ssd_collate_fn(batch):
     return images, labels, bboxes
 
 # Configurations
-IMAGE_DIR = r"Object-detection-1\train"
-
-samples = load_samples("preprocessed_data.json", IMAGE_DIR)
+IMAGE_DIR = r"Object-detection-1\valid"
+ANNO_PATH = r"preprocessed_data_valid.json"
+samples = load_samples(ANNO_PATH, IMAGE_DIR)
 
 def main():
     dataset = DetectionDataset(samples, transform=transform)
