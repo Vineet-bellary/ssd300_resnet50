@@ -1,141 +1,123 @@
 import torch
+import torchvision
 import cv2
-from torchvision.ops import nms
-
+import numpy as np
+from PIL import Image
 from model import SSDModel
+from new_backbone import ResNet50Backbone
 from anchors import build_all_anchors
-from backbone import SimpleSSDBackbone
+from gt_matching import decode_boxes  # Ensure this uses the 0.1/0.2 variances!
 
-# ---------------- CONFIG ----------------
+# Config
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
+CHECKPOINT = r"models\checkpoint_3.pth"
 NUM_CLASSES = 7
-NUM_ANCHORS = 6
-FEATURE_CHANNELS = [256, 256, 256]
+CONF_THRESHOLD = 0.5  # Minimum score to show a box
+IOU_THRESHOLD = 0.45  # NMS threshold
 
-CONF_THRESH = 0.75
-IOU_THRESH = 0.5
-TOP_K = 10
 
-CLASS_LABELS = {
-    1: "vehicles-and-traffic-signals",
-    2: "Bike",
-    3: "Bus",
-    4: "Car",
-    5: "Person",
-    6: "Traffic Signal",
-    7: "Truck",
-}
+def run_inference(image_path, model, anchors, class_names):
+    # 1. Preprocess Image
+    orig_img = cv2.imread(image_path)
+    h_orig, w_orig, _ = orig_img.shape
+    img_resized = cv2.resize(orig_img, (224, 224))
+    img_tensor = torch.from_numpy(img_resized).permute(2, 0, 1).float() / 255.0
+    img_tensor = img_tensor.unsqueeze(0).to(DEVICE)
 
-IMAGE_PATH = r"Object-detection-1\test\Screen-Shot-2022-04-13-at-11-40-18-PM_png.rf.a60c30217c393baac441a70d8abac050.jpg"
-MODEL_PATH = r"models\checkpoint_bs64_33.pth"
+    # 2. Forward Pass
+    model.eval()
+    with torch.no_grad():
+        cls_logits, bbox_preds = model(img_tensor)
 
-# ---------------- MODEL ----------------
-backbone = SimpleSSDBackbone()
+    # 3. Get Scores and Classes
+    # Apply softmax to get probabilities
+    cls_probs = torch.softmax(cls_logits[0], dim=-1)
+    scores, labels = torch.max(cls_probs, dim=-1)
 
-model = SSDModel(
-    backbone=backbone,
-    feature_channels=FEATURE_CHANNELS,
-    num_anchors=NUM_ANCHORS,
-    num_classes=NUM_CLASSES
-)
+    # 4. Decode and Filter
+    # Filter out Background (label 0) and low confidence
+    mask = (labels > 0) & (scores > CONF_THRESHOLD)
 
-'''
-When use checkpoint as model added 'model_state' key
-When using direct saved model, no 'model_state' key
-'''
-model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)['model_state'])
-model.to(DEVICE)
-model.eval()
+    if not mask.any():
+        print("No objects detected.")
+        return orig_img
 
-anchors = build_all_anchors().to(DEVICE)
+    filtered_preds = bbox_preds[0][mask]
+    filtered_anchors = anchors[mask]
+    filtered_scores = scores[mask]
+    filtered_labels = labels[mask]
 
-# ---------------- IMAGE ----------------
-img = cv2.imread(IMAGE_PATH)
-h, w, _ = img.shape
+    # Decode offsets to [xmin, ymin, xmax, ymax]
+    decoded_boxes = decode_boxes(filtered_preds, filtered_anchors)
 
-img_resized = cv2.resize(img, (224, 224))
-img_tensor = torch.tensor(img_resized).permute(2,0,1).float() / 255.0
-img_tensor = img_tensor.unsqueeze(0).to(DEVICE)
+    # 5. Non-Maximum Suppression (NMS)
+    # PyTorch's NMS expects boxes in absolute pixel coordinates or normalized
+    keep_idx = torchvision.ops.nms(decoded_boxes, filtered_scores, IOU_THRESHOLD)
 
-# ---------------- INFERENCE ----------------
-with torch.no_grad():
-    conf_preds, loc_preds = model(img_tensor)
+    final_boxes = decoded_boxes[keep_idx]
+    final_scores = filtered_scores[keep_idx]
+    final_labels = filtered_labels[keep_idx]
 
-conf_scores = torch.softmax(conf_preds[0], dim=1)
-scores, labels = conf_scores.max(dim=1)
+    # 6. Visualize
+    for i in range(len(final_boxes)):
+        box = final_boxes[i].cpu().numpy()
+        # Scale back to original image size
+        xmin = int(box[0] * w_orig)
+        ymin = int(box[1] * h_orig)
+        xmax = int(box[2] * w_orig)
+        ymax = int(box[3] * h_orig)
+        
+        # Get Class and Score
+        cls_id = final_labels[i].item()
+        score = final_scores[i].item()
+        class_name = class_map.get(cls_id, f"Unknown({cls_id})")
 
-mask = (scores > CONF_THRESH) & (labels > 0)
+        label_text = f"{class_name}: {score:.2f}"
+        # --- TERMINAL LOGGING ---
+        print(f"Detected: {class_name:12} | Confidence: {score:.4f} | Box: [{xmin}, {ymin}, {xmax}, {ymax}]")
+        
+        cv2.rectangle(orig_img, (xmin, ymin), (xmax, ymax), (0, 0, 255), 2)
+        cv2.putText(
+            orig_img,
+            label_text,
+            (xmin, ymin - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 0, 255),
+            2,
+        )
 
-scores = scores[mask]
-labels = labels[mask]
-loc_preds = loc_preds[0][mask]
-anchors = anchors[mask]
+    return orig_img
 
-# ---------------- DECODE ----------------
-ax, ay, aw, ah = anchors[:,0], anchors[:,1], anchors[:,2], anchors[:,3]
-tx, ty, tw, th = loc_preds[:,0], loc_preds[:,1], loc_preds[:,2], loc_preds[:,3]
 
-cx = tx * aw + ax
-cy = ty * ah + ay
-bw = torch.exp(tw) * aw
-bh = torch.exp(th) * ah
+if __name__ == "__main__":
+    # Setup
+    test_img_path = r"C:\Users\Vineet\Desktop\download.jpg"
+    
+    class_map = {
+        1: "bike",
+        2: "bus",
+        3: "car",
+        4: "motorcycle",
+        5: "person",
+        6: "truck",
+    }
+    
+    anchors = build_all_anchors().to(DEVICE)
 
-x1 = cx - bw / 2
-y1 = cy - bh / 2
-x2 = cx + bw / 2
-y2 = cy + bh / 2
+    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 6, NUM_CLASSES).to(DEVICE)
+    checkpoint = torch.load(CHECKPOINT, map_location=DEVICE)
+    model.load_state_dict(checkpoint["model_state"])
 
-boxes = torch.stack([x1, y1, x2, y2], dim=1)
-boxes = torch.clamp(boxes, 0, 1)
 
-# scale to original image
-boxes[:, [0,2]] *= w
-boxes[:, [1,3]] *= h
+    result = run_inference(test_img_path, model, anchors, class_map)
+    # cv2.imwrite("output.jpg", result)
+    # Show the image in a window
+    cv2.imshow("SSD Detection Result", result)
 
-# ---------------- NMS ----------------
-final_boxes = []
-final_scores = []
-final_labels = []
+    # Wait for any key press
+    print("Click on the image window and press any key to close...")
+    cv2.waitKey(0)
 
-for cls in torch.unique(labels):
-    cls_mask = labels == cls
-    keep = nms(boxes[cls_mask], scores[cls_mask], IOU_THRESH)
-
-    final_boxes.append(boxes[cls_mask][keep])
-    final_scores.append(scores[cls_mask][keep])
-    final_labels.append(labels[cls_mask][keep])
-
-if len(final_boxes) == 0:
-    print("No objects detected.")
-    exit()
-
-boxes = torch.cat(final_boxes)
-scores = torch.cat(final_scores)
-labels = torch.cat(final_labels)
-
-# Top-K
-scores, idx = scores.sort(descending=True)
-idx = idx[:TOP_K]
-
-boxes = boxes[idx]
-scores = scores[idx]
-labels = labels[idx]
-
-# ---------------- DRAW ----------------
-for box, score, label in zip(boxes, scores, labels):
-    name = CLASS_LABELS[label.item()]
-    x1,y1,x2,y2 = box.int().tolist()
-
-    cv2.rectangle(img, (x1,y1), (x2,y2), (0, 0, 255), 2)
-    cv2.putText(
-        img, f"{name}:{score:.2f}",
-        (x1, y1-5),
-        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1
-    )
-
-    print(f"Detected {name} with confidence {score:.2f}")
-
-cv2.imshow("SSD Demo Inference", img)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    # Clean up and close the window
+    cv2.destroyAllWindows()
