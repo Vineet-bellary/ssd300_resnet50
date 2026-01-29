@@ -65,8 +65,11 @@ def ssd_collate_fn(batch):
 # --- Path Configs ---
 TRAIN_IMAGE_DIR = r"Object-detection-1\train"
 TRAIN_ANNO_PATH = r"preprocessed_data_train.json"
+VALID_IMAGE_DIR = r"Object-detection-1\valid"
+VALID_ANNO_PATH = r"preprocessed_data_valid.json"
 
 train_samples = load_samples(TRAIN_ANNO_PATH, TRAIN_IMAGE_DIR)
+valid_samples = load_samples(VALID_ANNO_PATH, VALID_IMAGE_DIR)
 
 # def main():
 #     anchors = build_all_anchors()

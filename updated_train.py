@@ -26,7 +26,7 @@ LR = 1e-4
 CHECKPOINT_PATH = "checkpoint.pth"
 
 def main():
-    print(f"Starting training on {DEVICE} with num_workers=2...")
+    print(f"Starting training on {DEVICE}...")
 
     # 1. Create Anchors
     anchors_cpu = build_all_anchors()
@@ -76,10 +76,10 @@ def main():
         epoch_loss = 0.0
 
         for images, cls_targets, bbox_targets, labels_mask in train_loader:
-            images = images.to(DEVICE)
-            cls_targets = cls_targets.to(DEVICE)
-            bbox_targets = bbox_targets.to(DEVICE)
-            labels_mask = labels_mask.to(DEVICE)
+            images = images.to(DEVICE, non_blocking=True)
+            cls_targets = cls_targets.to(DEVICE, non_blocking=True)
+            bbox_targets = bbox_targets.to(DEVICE, non_blocking=True)
+            labels_mask = labels_mask.to(DEVICE, non_blocking=True)
 
             cls_logits, bbox_preds = model(images)
 
