@@ -60,42 +60,42 @@ def force_match_gt(iou_matrix):
     best_anchor_for_gt = torch.argmax(iou_matrix, dim=0)
     return best_anchor_for_gt
 
-def classify_anchors(iou_matrix, best_anchor_for_gt, pos_threshold=0.5, neg_threshold=0.4):
+def classify_anchors(iou_matrix, best_anchor_for_gt,
+                     pos_threshold=0.5, neg_threshold=0.4):
     """
-    iou_matrix: Tensor [A, G]
-    best_anchor_for_gt: Tensor [G]
+    Vectorized anchor classification
+    """
 
-    returns:
-        labels: Tensor [A] with values
-                1 = positive
-                0 = negative
-               -1 = ignore
-        matched_gt_idx: Tensor [A] (GT index for positives, undefined otherwise)
-    """
     A, G = iou_matrix.shape
-    
-    labels = -1 *torch.ones(A, dtype=torch.int64)
-    matched_gt_idx = torch.full((A,), -1, dtype=torch.long)
-    
-    # For each anchor, best GT & IoU
+
+    labels = torch.full((A,), -1, dtype=torch.long, device=iou_matrix.device)
+    matched_gt_idx = torch.full((A,), -1, dtype=torch.long, device=iou_matrix.device)
+
+    # Best GT per anchor
     max_iou_per_anchor, best_gt_idx = torch.max(iou_matrix, dim=1)
-    
-    # STEP 3: forced positives
+
+    # -------------------------
+    # Forced positives
+    # -------------------------
     labels[best_anchor_for_gt] = 1
-    matched_gt_idx[best_anchor_for_gt] = torch.arange(G)
+    matched_gt_idx[best_anchor_for_gt] = torch.arange(
+        G, device=iou_matrix.device
+    )
 
-    # STEP 4: threshold-based rules (skip forced positives)
-    for a in range(A):
-        if labels[a] == 1:
-            continue
+    # -------------------------
+    # Remaining anchors
+    # -------------------------
+    not_forced = labels != 1
 
-        if max_iou_per_anchor[a] >= pos_threshold:
-            labels[a] = 1
-            matched_gt_idx[a] = best_gt_idx[a]
-        elif max_iou_per_anchor[a] < neg_threshold:
-            labels[a] = 0  # negative
-        else:
-            labels[a] = -1  # ignore
+    pos_mask = (max_iou_per_anchor >= pos_threshold) & not_forced
+    neg_mask = (max_iou_per_anchor < neg_threshold) & not_forced
+    ignore_mask = ~(pos_mask | neg_mask) & not_forced
+
+    labels[pos_mask] = 1
+    labels[neg_mask] = 0
+    labels[ignore_mask] = -1
+
+    matched_gt_idx[pos_mask] = best_gt_idx[pos_mask]
 
     return labels, matched_gt_idx
 
@@ -141,6 +141,14 @@ def match_anchors_to_gt(
     neg_threshold=0.4,
     bg_label=0
 ):
+    
+    if gt_boxes.numel() == 0:
+        A = anchors.shape[0]
+        cls_targets = torch.zeros(A, dtype=torch.long, device=anchors.device)
+        bbox_targets = torch.zeros((A, 4), dtype=torch.float32, device=anchors.device)
+        labels_mask = torch.zeros(A, dtype=torch.long, device=anchors.device)
+        return cls_targets, bbox_targets, labels_mask
+    
     device = anchors.device
     # assert anchors.is_cuda, "ANCHORS NOT ON CUDA"
     # print("ANCHORS DEVICE:", anchors.device)
@@ -198,7 +206,6 @@ def match_anchors_to_gt(
 
     return cls_targets, bbox_targets, labels_mask
 
-match_anchors_to_gt
 
 def decode_boxes(pred_locs, anchors):
     """

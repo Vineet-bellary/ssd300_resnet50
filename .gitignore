@@ -1,4 +1,7 @@
 Object-detection-1/
+ssd-object-detection-5
+old data json
+
 __pycache__/
 *.pt
 

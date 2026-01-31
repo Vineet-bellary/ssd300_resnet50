@@ -1,43 +1,94 @@
 import json
 import os
 
-def preprocess_for_my_train_script(coco_json_path, output_path, img_dir):
+def json_preprocessor(coco_json_path, output_path, img_dir):
     with open(coco_json_path, 'r') as f:
         data = json.load(f)
 
-    # 1. Map category IDs to be contiguous (0 to 6)
-    categories = data['categories']
-    cat_id_map = {cat['id']: i for i, cat in enumerate(categories)}
+    # -------------------------------------------------
+    # 1. Category ID mapping
+    #    Background = 0
+    #    Object classes start from 1
+    # -------------------------------------------------
+    categories = data["categories"]
+    cat_id_map = {cat["id"]: idx + 1 for idx, cat in enumerate(categories)}
 
-    # 2. Build a lookup for images
-    images_dict = {img['id']: img for img in data['images']}
-    
-    # 3. Restructure into the format expected by dataloader.py
+    # -------------------------------------------------
+    # 2. Image lookup by image_id
+    # -------------------------------------------------
+    images_dict = {img["id"]: img for img in data["images"]}
+
     processed_data = {}
-    
-    for ann in data['annotations']:
-        img_id = ann['image_id']
+
+    # -------------------------------------------------
+    # 3. Process annotations
+    # -------------------------------------------------
+    for ann in data["annotations"]:
+        img_id = ann["image_id"]
         if img_id not in images_dict:
             continue
-            
+
         img_info = images_dict[img_id]
-        file_name = img_info['file_name']
-        
-        # Verify image exists
-        if not os.path.exists(os.path.join(img_dir, file_name)):
+        file_name = img_info["file_name"]
+        img_w = img_info["width"]
+        img_h = img_info["height"]
+
+        image_path = os.path.join(img_dir, file_name)
+        if not os.path.exists(image_path):
+            continue
+
+        # COCO bbox: [x_min, y_min, width, height] (pixels)
+        x, y, w, h = ann["bbox"]
+
+        # Skip invalid boxes
+        if w <= 0 or h <= 0:
+            continue
+
+        # -------------------------------------------------
+        # Convert to cx, cy, w, h (normalized)
+        # -------------------------------------------------
+        cx = (x + w / 2) / img_w
+        cy = (y + h / 2) / img_h
+        nw = w / img_w
+        nh = h / img_h
+
+        # Skip boxes outside image after normalization
+        if not (0 < cx < 1 and 0 < cy < 1 and 0 < nw <= 1 and 0 < nh <= 1):
             continue
 
         if file_name not in processed_data:
-            processed_data[file_name] = {"labels": [], "bboxes": []}
-        
-        processed_data[file_name]["labels"].append(cat_id_map[ann['category_id']])
-        processed_data[file_name]["bboxes"].append(ann['bbox'])
+            processed_data[file_name] = {
+                "labels": [],
+                "bboxes": []
+            }
 
-    # Save in the format your dataloader.py expects
-    with open(output_path, 'w') as f:
-        json.dump(processed_data, f)
+        # Label remap (background = 0, objects start from 1)
+        new_label = cat_id_map[ann["category_id"]]
 
-    print(f"Done! Saved {len(processed_data)} valid images to {output_path}")
+        processed_data[file_name]["labels"].append(new_label)
+        processed_data[file_name]["bboxes"].append([cx, cy, nw, nh])
 
-# Usage
-preprocess_for_my_train_script(r'Object-detection-1\valid\_annotations.coco.json', 'preprocessed_data_valid.json', r'Object-detection-1\valid')
+    # -------------------------------------------------
+    # 4. Save processed JSON
+    # -------------------------------------------------
+    with open(output_path, "w") as f:
+        json.dump(processed_data, f, indent=2)
+
+    print(f"[OK] Saved {len(processed_data)} images to {output_path}")
+
+
+# -------------------------------------------------
+# USAGE
+# -------------------------------------------------
+
+json_preprocessor(
+    r"ssd-object-detection-5\train\_annotations.coco.json",
+    "preprocessed_weapon_train.json",
+    r"ssd-object-detection-5\train"
+)
+
+json_preprocessor(
+    r"ssd-object-detection-5\valid\_annotations.coco.json",
+    "preprocessed_weapon_valid.json",
+    r"ssd-object-detection-5\valid"
+)

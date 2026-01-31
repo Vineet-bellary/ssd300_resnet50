@@ -1,100 +1,113 @@
 import json
+import os
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision import transforms
 from PIL import Image
 
-from anchors import build_all_anchors
 from gt_matching import match_anchors_to_gt
 
+
+# -------------------------------------------------
+# Image transforms
+# -------------------------------------------------
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+])
+
+
+# -------------------------------------------------
+# Utility to load preprocessed samples
+# -------------------------------------------------
 def load_samples(preprocessed_json, image_dir):
     with open(preprocessed_json, "r") as f:
         image_info = json.load(f)
 
     samples = []
     for file_name, info in image_info.items():
-        image_path = rf"{image_dir}/{file_name}"
+        image_path = os.path.join(image_dir, file_name)
         labels = info["labels"]
         bboxes = info["bboxes"]
         samples.append((image_path, labels, bboxes))
+
     return samples
 
-transform = transforms.Compose([
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-])
 
+# -------------------------------------------------
+# Dataset
+# -------------------------------------------------
 class DetectionDataset(Dataset):
     def __init__(self, samples, anchors, transform=None):
         self.samples = samples
         self.transform = transform
-        # Ensure anchors are on CPU for the matching process
-        self.anchors = anchors.cpu() 
-        
+
+        # Anchors must be on CPU for matching
+        self.anchors = anchors.cpu()
+
+        self.num_anchors = self.anchors.shape[0]
+
     def __len__(self):
         return len(self.samples)
-    
+
     def __getitem__(self, index):
         image_path, labels, bboxes = self.samples[index]
-        image = Image.open(image_path).convert('RGB')
-        
-        if self.transform is not None:
-            image_tensor = self.transform(image)
 
-        # Matching happens on CPU during data loading
+        # -----------------------
+        # Load image
+        # -----------------------
+        image = Image.open(image_path).convert("RGB")
+        if self.transform is not None:
+            image = self.transform(image)
+
+        # -----------------------
+        # Empty GT handling
+        # -----------------------
+        if len(labels) == 0:
+            cls_targets = torch.zeros(self.num_anchors, dtype=torch.long)
+            bbox_targets = torch.zeros((self.num_anchors, 4), dtype=torch.float32)
+            labels_mask = torch.zeros(self.num_anchors, dtype=torch.long)
+            return image, cls_targets, bbox_targets, labels_mask
+
+        # -----------------------
+        # Convert GT to tensors
+        # -----------------------
+        gt_labels = torch.tensor(labels, dtype=torch.long)
+        gt_boxes = torch.tensor(bboxes, dtype=torch.float32)
+
+        # -----------------------
+        # Sanity checks (DEBUG SAFETY)
+        # -----------------------
+        assert gt_boxes.ndim == 2 and gt_boxes.shape[1] == 4, \
+            f"Invalid bbox shape: {gt_boxes.shape}"
+
+        assert torch.all(gt_boxes >= 0.0) and torch.all(gt_boxes <= 1.0), \
+            f"BBoxes not normalized in {image_path}"
+
+        # -----------------------
+        # Anchor ↔ GT matching
+        # -----------------------
         cls_targets, bbox_targets, labels_mask = match_anchors_to_gt(
             anchors=self.anchors,
-            gt_boxes=torch.tensor(bboxes, dtype=torch.float32),
-            gt_labels=torch.tensor(labels, dtype=torch.long),
+            gt_boxes=gt_boxes,
+            gt_labels=gt_labels,
             pos_threshold=0.5,
             neg_threshold=0.4,
             bg_label=0
         )
-        return image_tensor, cls_targets, bbox_targets, labels_mask
 
+        return image, cls_targets, bbox_targets, labels_mask
+
+
+# -------------------------------------------------
+# Collate function
+# -------------------------------------------------
 def ssd_collate_fn(batch):
-    # Fixed: Removed the redundant nested function definition
     images, cls_t, bbox_t, masks = zip(*batch)
+
     return (
         torch.stack(images, dim=0),
         torch.stack(cls_t, dim=0),
         torch.stack(bbox_t, dim=0),
-        torch.stack(masks, dim=0)
+        torch.stack(masks, dim=0),
     )
-
-# --- Path Configs ---
-TRAIN_IMAGE_DIR = r"Object-detection-1\train"
-TRAIN_ANNO_PATH = r"preprocessed_data_train.json"
-VALID_IMAGE_DIR = r"Object-detection-1\valid"
-VALID_ANNO_PATH = r"preprocessed_data_valid.json"
-
-train_samples = load_samples(TRAIN_ANNO_PATH, TRAIN_IMAGE_DIR)
-valid_samples = load_samples(VALID_ANNO_PATH, VALID_IMAGE_DIR)
-
-# def main():
-#     anchors = build_all_anchors()
-    
-#     # Fixed: Corrected indentation and variable names
-#     train_dataset = DetectionDataset(
-#         samples=train_samples,
-#         anchors=anchors,
-#         transform=transform
-#     )
-    
-#     loader = DataLoader(
-#         train_dataset, # Changed 'dataset' to 'train_dataset'
-#         batch_size=4,
-#         shuffle=True,
-#         collate_fn=ssd_collate_fn
-#     )
-    
-#     # Test loop
-#     for images, cls_targets, bbox_targets, masks in loader:
-#         print(f"Images batch shape: {images.shape}")
-#         print(f"CLS Targets shape: {cls_targets.shape}")
-#         break
-    
-#     return loader
-
-# if __name__ == "__main__":
-#     main()
