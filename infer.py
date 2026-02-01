@@ -183,37 +183,37 @@ if __name__ == "__main__":
     ]
     model.load_state_dict(trained_model)
 
-    result = run_inference(test_img_path, model, anchors, class_map)
-    # cv2.imwrite("output.jpg", result)
-    # Show the image in a window
-    cv2.imshow("SSD Detection Result", result)
+    # result = run_inference(test_img_path, model, anchors, class_map)
+    # # cv2.imwrite("output.jpg", result)
+    # # Show the image in a window
+    # cv2.imshow("SSD Detection Result", result)
 
-    # Wait for any key press
-    print("Click on the image window and press any key to close...")
-    cv2.waitKey(0)
+    # # Wait for any key press
+    # print("Click on the image window and press any key to close...")
+    # cv2.waitKey(0)
 
-    # Clean up and close the window
-    cv2.destroyAllWindows()
+    # # Clean up and close the window
+    # cv2.destroyAllWindows()
 
     # -------------------- WEBCAM INFERENCE --------------------
-    # print("Starting webcam... Press 'q' to quit")
+    print("Starting webcam... Press 'q' to quit")
 
-    # cap = cv2.VideoCapture(0)
-    # assert cap.isOpened(), "Webcam open avvatle mama!"
+    cap = cv2.VideoCapture(0)
+    assert cap.isOpened(), "Webcam open avvatle mama!"
 
-    # frame_count = 0
-    # while True:
-    #     ret, frame = cap.read()
-    #     if not ret:
-    #         break
-    #     if frame_count % 2 == 0:  # every 2 frames
-    #         output = infer_on_frame(frame, model, anchors, class_map)
+    frame_count = 0
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if frame_count % 2 == 0:  # every 2 frames
+            output = infer_on_frame(frame, model, anchors, class_map)
 
-    #     frame_count += 1
-    #     cv2.imshow("SSD Webcam Detection", output)
+        frame_count += 1
+        cv2.imshow("SSD Webcam Detection", output)
 
-    #     if cv2.waitKey(1) & 0xFF == ord("q"):
-    #         break
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
 
-    # cap.release()
-    # cv2.destroyAllWindows()
+    cap.release()
+    cv2.destroyAllWindows()
