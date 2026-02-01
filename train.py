@@ -16,14 +16,14 @@ from new_backbone import ResNet50Backbone
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 NUM_CLASSES = 4
-ANCHORS_PER_CELL = 6
+ANCHORS_PER_CELL = 21
 BATCH_SIZE = 16
 EPOCHS = 100
-LR = 1e-3
-CHECKPOINT_PATH = "checkpoint.pth"
+LR = 1e-4
+CHECKPOINT_PATH = "checkpoint_updated_anchors.pth"
 
 
-BEST_CHECKPOINT_PATH = "best_checkpoint.pth"
+BEST_CHECKPOINT_PATH = "best_checkpoint_after_anchor_update.pth"
 
 PATIENCE = 15
 
@@ -104,7 +104,7 @@ def main():
         ]
     )
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.8)
 
     # -------------------------------------------------
     # 4. Checkpoint load

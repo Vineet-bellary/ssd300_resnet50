@@ -1,1 +1,2 @@
 best_checkpoint.pth filter=lfs diff=lfs merge=lfs -text
+best_checkpoint_after_anchor_update.pth filter=lfs diff=lfs merge=lfs -text

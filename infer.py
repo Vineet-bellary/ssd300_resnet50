@@ -10,10 +10,10 @@ from gt_matching import decode_boxes  # Ensure this uses the 0.1/0.2 variances!
 
 # Config
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL = r"best_checkpoint.pth"
+MODEL = r"best_checkpoint_after_anchor_update.pth"
 NUM_CLASSES = 4
-CONF_THRESHOLD = 0.1  # Minimum score to show a box
-IOU_THRESHOLD = 0.4  # NMS threshold
+CONF_THRESHOLD = 0.99  # Minimum score to show a box
+IOU_THRESHOLD = 0.7  # NMS threshold
 
 
 # Using single image inference
@@ -111,7 +111,7 @@ def run_inference(image_path, model, anchors, class_names):
 
 
 # Using webcam live feed
-def infer_on_frame(frame, model, anchors, class_names):
+def infer_on_frame(frame, model, anchors, class_names, log=True):
     orig_img = frame.copy()
     h_orig, w_orig, _ = orig_img.shape
 
@@ -151,7 +151,7 @@ def infer_on_frame(frame, model, anchors, class_names):
         xmax = int(box[2] * w_orig)
         ymax = int(box[3] * h_orig)
 
-        if conf > 0.5:
+        if log and conf > CONF_THRESHOLD:
             print(f"[WEBCAM] {name:10} | Conf: {conf:.4f}")
 
         cv2.rectangle(orig_img, (xmin, ymin), (xmax, ymax), (0, 255, 0), 2)
@@ -176,7 +176,7 @@ if __name__ == "__main__":
 
     anchors = build_all_anchors().to(DEVICE)
 
-    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 6, NUM_CLASSES).to(DEVICE)
+    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 21, NUM_CLASSES).to(DEVICE)
     print(model.heads[0].cls_conv.out_channels)
     trained_model = torch.load(MODEL, map_location=DEVICE, weights_only=True)[
         "model_state"
@@ -207,7 +207,8 @@ if __name__ == "__main__":
         if not ret:
             break
         if frame_count % 2 == 0:  # every 2 frames
-            output = infer_on_frame(frame, model, anchors, class_map)
+            log = frame_count % 30 == 0  # log every 30 frames
+            output = infer_on_frame(frame, model, anchors, class_map, log=log)
 
         frame_count += 1
         cv2.imshow("SSD Webcam Detection", output)

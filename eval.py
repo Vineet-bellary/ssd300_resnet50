@@ -15,11 +15,11 @@ from dataloader import DetectionDataset, ssd_collate_fn, load_samples, transform
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 NUM_CLASSES = 4  # background excluded
-CONF_THRESHOLD = 0.4  # eval lo low threshold
-IOU_THRESHOLD = 0.3
+CONF_THRESHOLD = 0.1  # eval lo low threshold
+IOU_THRESHOLD = 0.5
 NMS_THRESHOLD = 0.4
 
-MODEL_PATH = "best_checkpoint.pth"
+MODEL_PATH = "best_checkpoint_after_anchor_update.pth"
 
 VAL_JSON = "preprocessed_weapon_valid.json"
 VAL_IMG_DIR = r"ssd-object-detection-7\valid"
@@ -230,7 +230,7 @@ if __name__ == "__main__":
         val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=ssd_collate_fn
     )
 
-    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 6, NUM_CLASSES).to(DEVICE)
+    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 21, NUM_CLASSES).to(DEVICE)
 
     model.load_state_dict(
         torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)["model_state"]

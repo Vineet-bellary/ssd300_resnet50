@@ -56,8 +56,8 @@ def clip_anchors(anchors):
 def build_all_anchors():
     # Configurations
     feature_maps = [38, 19, 10]
-    scales = {38: [0.05, 0.1], 19: [0.15, 0.25], 10: [0.35, 0.45]}  # VERY small
-    aspect_ratios = [1, 2, 0.5]
+    scales = {38: [0.1, 0.2, 0.3], 19: [0.4, 0.5, 0.6], 10: [0.7, 0.8, 0.9]}
+    aspect_ratios = [1, 2, 0.5, 3, 1 / 3, 4, 1 / 4]
     all_anchors = []
 
     # Generate anchors for each feature map
