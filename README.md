@@ -1,108 +1,149 @@
 # SSD Object Detection with Custom Data Pipeline
 
-This project implements a **Single Shot Multibox Detector (SSD)** using a **ResNet50 backbone** for object detection.  
-It includes a **custom preprocessing and data loading pipeline** designed to handle **COCO-formatted datasets** and convert them into an optimized format for training.
+This project implements a **Single Shot Multibox Detector (SSD)** using a **ResNet50 backbone** for real-time object detection. It focuses on detecting weapons (knife, pistol, rifle, shotgun) but includes a flexible pipeline for custom COCO-formatted datasets. The model achieves mAP@0.5 ~0.13 on validation and supports training from scratch or fine-tuning.
 
----
+## About the Project
 
-## Project Structure
+### Overview
 
-- **`updated_train.py`**  
-  Main training script with a full training/validation loop, Adam optimizer, and automatic checkpointing.
+SSD is a single-shot detector that predicts bounding boxes and class probabilities directly from multi-scale feature maps, making it efficient for real-time applications. This implementation uses:
 
-- **`dataloader.py`**  
-  Contains the `DetectionDataset` class and logic to load processed JSON samples.
+- **Backbone**: Pre-trained ResNet50 for feature extraction.
+- **Anchors**: 11,430 default boxes across 3 feature maps (38x38, 19x19, 10x10).
+- **Loss**: Combined classification (cross-entropy with hard negative mining) and localization (Smooth L1).
+- **Data Pipeline**: Custom preprocessing for COCO JSON, with augmentation (flips, jitter) and optimized loading.
 
-- **`model.py`**  
-  Defines the SSD model architecture.
+### Key Components
 
-- **`new_backbone.py`**  
-  Implements the `ResNet50Backbone` used as the feature extractor.
+- **`train.py`**: Training loop with Adam optimizer, LR scheduling, and early stopping.
+- **`eval.py`**: Evaluation script for mAP, precision/recall/F1.
+- **`dataloader.py`**: Dataset class for loading preprocessed samples.
+- **`model.py`**: SSD model with heads for classification and bbox regression.
+- **`new_backbone.py`**: ResNet50 feature extractor.
+- **`anchors.py`**: Anchor generation and clipping.
+- **`loss.py`**: SSD loss computation.
+- **`preprocessing.py`**: Converts COCO JSON to optimized format.
+- **`gt_matching.py`**: Anchor-GT matching and bbox decoding.
 
-- **`anchors.py`**  
-  Handles generation of anchor boxes for multiple feature map scales.
+### Results
 
-- **`loss.py`**  
-  Implements the SSD loss function (classification + bounding box regression).
-
----
+- Trained on ~100-200 weapon images.
+- Best val loss: ~6.1, mAP@0.5: 0.13.
+- Low recall due to class imbalance; improvements possible with more data/augmentation.
 
 ## Installation
 
-### 1. Clone the Repository
+1. **Clone the Repository**:
 
-```bash
-git clone https://github.com/your-username/your-repo-name.git
-cd your-repo-name
-```
+   ```bash
+   git clone https://github.com/Vineet-bellary/ssd300_resnet50.git
+   cd cv-ssd
+   ```
 
-### 2. Install Dependencies
+2. **Install Dependencies**:
 
-``` bash
-pip install torch torchvision pillow
-```
+    ```bash
+      pip install torch torchvision pillow numpy
+    ```
 
-## Training on a New Dataset
+## Steps to Train on a New Dataset
 
-To train the model on a completely new dataset (new images and classes), follow the steps below.
+Follow these steps to adapt the model for a new COCO-formatted dataset.
 
-### 1. Prepare & Preprocess Data
+1. **Prepare Your Dataset**
 
-- Convert COCO JSON annotations into the dictionary format required by the dataloader.
+    - Ensure your data is in COCO format: `images/` folder and `_annotations.coco.json` with categories, images, and annotations.
+    - Example structure:
 
-- Generate files such as:
+        ```bash
+        └── 📁ssd-object-detection-7
+            └── 📁test
+                ├── _annotations.coco.json
+            └── 📁train
+                ├── _annotations.coco.json
+            └── 📁valid
+                ├── _annotations.coco.json
+            ├── README.dataset.txt
+            └── README.roboflow.txt
+      ```
 
-```bash
-preprocessed_data_train.json
-preprocessed_data_val.json
-```
+2. **Preprocess the Data**
 
-### 2. Update Configurations
+    - Run `preprocessing.py` to convert COCO JSON to the required format.
+    - Update paths in `preprocessing.py`:
 
-Modify the following constants to match your dataset:
+    ```python
+    coco_json_path = "path/to/your/train/_annotations.coco.json"
+    output_path = "preprocessed_train.json"
+    img_dir = "path/to/your/train"
+    ```
 
-In `dataloader.py`
+    - Set VALID_CLASSES to your categories (e.g., ["car", "person"]).
+    - Execute:
 
-- `TRAIN_IMAGE_DIR`
+    ```bash
+    python [preprocessing.py]
+    ```
 
-- `VALID_IMAGE_DIR`
+    - Repeat for validation data.
 
-- Paths to the new preprocessed JSON files
+3. **Update Configurations**
 
-In `updated_train.py`
+    - In `train.py`:
 
-- Update `NUM_CLASSES` to match the number of categories in your dataset.
+      - Set NUM_CLASSES to the number of object classes (e.g., 2 for car/person).
 
-### 3. Reset Checkpoints
+      - Update paths:
 
-Important
+    ```python
+    TRAIN_IMAGE_DIR = r"path/to/your/train"
+    TRAIN_JSON = "preprocessed_train.json"
+    VALID_IMAGE_DIR = r"path/to/your/valid"
+    VALID_JSON = "preprocessed_valid.json"
+    ```
 
-If the number of classes has changed, delete any existing `checkpoint.pth` before starting new training.
+    - In `eval.py`, update `VAL_JSON` and `VAL_IMG_DIR` accordingly.
+    - If classes changed, delete existing `checkpoint.pth` and `best_checkpoint.pth`
 
-### 4. Run Training
+4. **Adjust Hyperparameters** (Optional)
 
-```bash
-python updated_train.py
-```
+    - In `train.py`:
+      - Increase EPOCHS (e.g., 200) for better convergence.
+      - Tune LR (e.g., 1e-3), BATCH_SIZE (e.g., 8 if GPU memory is low).
+      - Add more augmentation in dataloader.py (e.g., random crops).
+
+5. **Train the Model**
+
+    - Run training:
+
+    ```bash
+    python [train.py]
+    ```
+
+    - Monitor logs for loss trends; early stopping triggers at patience=15.
+    - Best model saves to `best_checkpoint.pth`.
+
+6. **Evaluate**
+
+    - After training, run:
+
+    ```bash
+    python [eval.py]
+    ```
+
+    - Check mAP and per-class metrics; adjust thresholds if needed.
 
 ## Features
 
-- Contiguous Category Mapping
-Re-maps category IDs to a continuous range (0 → N) to avoid indexing issues.
-
-- Automated Checkpointing
-Saves a checkpoint after every epoch for safe resume.
-
-- Data Validation
-Verifies image existence before including samples in the dataset.
-
-- Optimized Data Loading
-Uses a custom ssd_collate_fn for efficient GPU batching.
+- **Flexible Pipeline**: Handles any COCO dataset with minimal changes.
+- **Real-Time Inference**: Supports webcam/video detection (extend `eval.py`).
+- **Checkpointing**: Automatic saves; resume with `torch.load`.
+- **Data Validation**: Skips missing images.
+- **Augmentation**: Built-in flips and jitter for robustness.
 
 ## Notes
 
-- Designed for flexibility with custom datasets.
-
-- Supports image-based and real-time webcam inference.
-
-- Easy to extend with new backbones or feature heads.
+- For large files (.pth), use Git LFS: `git lfs track "*.pth"`.
+- GPU recommended; adjust `DEVICE` for CPU.
+- Extend with new backbones (e.g., VGG) by modifying `new_backbone.py`.
+- Common issues: Class imbalance (add oversampling), anchor mismatches (tune scales in `anchors.py`).
