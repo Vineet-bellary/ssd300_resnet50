@@ -24,6 +24,8 @@ class SSDHead(nn.Module):
             kernel_size=3,
             padding=1
         )
+        
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
         B, _, H, W = x.shape
@@ -35,6 +37,9 @@ class SSDHead(nn.Module):
         bbox = self.bbox_conv(x)
         bbox = bbox.permute(0, 2, 3, 1).contiguous()
         bbox = bbox.view(B, H * W * self.num_anchors, 4)
+        
+        cls = self.dropout(cls)
+        bbox = self.dropout(bbox)
 
         return cls, bbox
 

@@ -1,99 +1,243 @@
 import torch
+import numpy as np
+from collections import defaultdict
+from torch.utils.data import DataLoader
+from torchvision.ops import nms
 
+from anchors import build_all_anchors
+from gt_matching import decode_boxes
 from model import SSDModel
-from backbone import SimpleSSDBackbone
-from dataloader import DetectionDataset, samples, transform
-from infer_utils import infer_one_image
-from gt_matching import compute_iou
+from new_backbone import ResNet50Backbone
 
+from dataloader import DetectionDataset, ssd_collate_fn, load_samples, transform
+
+# ---------------- CONFIG ----------------
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-NUM_CLASSES = 7
-FEATURE_CHANNELS = [256, 256, 256]
-NUM_ANCHORS = 6
+NUM_CLASSES = 4  # background excluded
+CONF_THRESHOLD = 0.4  # eval lo low threshold
+IOU_THRESHOLD = 0.3
+NMS_THRESHOLD = 0.4
 
-# Load model
-backbone = SimpleSSDBackbone()
+MODEL_PATH = "best_checkpoint.pth"
 
-model = SSDModel(
-    backbone=backbone,
-    feature_channels=FEATURE_CHANNELS,
-    num_anchors=NUM_ANCHORS,
-    num_classes=NUM_CLASSES
-)
+VAL_JSON = "preprocessed_weapon_valid.json"
+VAL_IMG_DIR = r"ssd-object-detection-7\valid"
 
-MODEL_PATH = r"models\checkpoint_bs64_33.pth"
+BATCH_SIZE = 8
+# ---------------------------------------
 
-'''
-When use checkpoint as model added 'model_state' key
-When using direct saved model, no 'model_state' key
-'''
-model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)['model_state'])
-model.to(DEVICE)
-model.eval()
 
-dataset = DetectionDataset(samples, transform=transform)
+# ---------------- UTILS -----------------
+def box_iou(box1, box2):
+    """
+    box format: [xmin, ymin, xmax, ymax]
+    """
+    x1 = max(box1[0], box2[0])
+    y1 = max(box1[1], box2[1])
+    x2 = min(box1[2], box2[2])
+    y2 = min(box1[3], box2[3])
 
-def evaluate_image(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_thresh=0.5):
-    TP = FP = FN = 0
-    matched_gt = set()
+    inter = max(0, x2 - x1) * max(0, y2 - y1)
 
-    if len(gt_boxes) == 0:
-        FP = len(pred_boxes)
-        return TP, FP, FN
+    area1 = max(0, box1[2] - box1[0]) * max(0, box1[3] - box1[1])
+    area2 = max(0, box2[2] - box2[0]) * max(0, box2[3] - box2[1])
 
-    if len(pred_boxes) == 0:
-        FN = len(gt_boxes)
-        return TP, FP, FN
+    union = area1 + area2 - inter
+    return inter / union if union > 0 else 0
 
-    iou_matrix = compute_iou(pred_boxes, gt_boxes)
-    print("GT boxes:", gt_boxes[:2])
-    print("Pred boxes:", pred_boxes[:2])
-    for p in range(len(pred_boxes)):
-        best_iou, best_gt = torch.max(iou_matrix[p], dim=0)
 
-        if best_iou >= iou_thresh:
-            if best_gt.item() not in matched_gt and pred_labels[p] == gt_labels[best_gt]:
-                TP += 1
-                matched_gt.add(best_gt.item())
+# ---------------------------------------
+
+
+# ---------------- EVALUATION ----------------
+def evaluate(model, dataloader):
+    model.eval()
+    anchors = build_all_anchors().to(DEVICE)
+
+    TP = defaultdict(int)
+    FP = defaultdict(int)
+    FN = defaultdict(int)
+
+    detections = defaultdict(list)  # for AP
+    gt_count = defaultdict(int)  # GT count per class
+    print(gt_count)
+
+    with torch.no_grad():
+        for images, cls_targets, bbox_targets, labels_mask in dataloader:
+            images = images.to(DEVICE)
+
+            cls_logits, bbox_preds = model(images)
+            cls_probs = torch.softmax(cls_logits, dim=-1)
+
+            B = images.size(0)
+
+            for i in range(B):
+                # ---------------- Predictions ----------------
+                scores, labels = torch.max(cls_probs[i], dim=-1)
+                mask = (labels > 0) & (scores > CONF_THRESHOLD)
+
+                # ---------------- Ground Truth ----------------
+                gt_boxes = []
+                gt_labels = []
+
+                pos_mask = cls_targets[i] > 0
+                gt_boxes = (
+                    decode_boxes(
+                        bbox_targets[i][pos_mask].to(DEVICE), anchors[pos_mask]
+                    )
+                    .cpu()
+                    .numpy()
+                )
+
+                gt_labels = cls_targets[i][pos_mask].cpu().numpy()
+
+                for g in gt_labels:
+                    gt_count[g] += 1
+
+                if mask.sum() == 0:
+                    for g in gt_labels:
+                        FN[g] += 1
+                    continue
+
+                # ---------------- Decode Predictions ----------------
+                pred_boxes = decode_boxes(bbox_preds[i][mask], anchors[mask])
+
+                pred_scores = scores[mask]
+                pred_labels = labels[mask]
+
+                # ---------------- NMS (CRITICAL FIX) ----------------
+                keep = nms(pred_boxes, pred_scores, NMS_THRESHOLD)
+
+                pred_boxes = pred_boxes[keep].cpu().numpy()
+                pred_scores = pred_scores[keep].cpu().numpy()
+                pred_labels = pred_labels[keep].cpu().numpy()
+
+                unique_pred_labels = set(pred_labels.tolist())
+                print(unique_pred_labels)
+
+                print("Avg score:", pred_scores.mean())
+                # ---------------- Matching ----------------
+                matched_gt = set()
+
+                for pb, ps, pl in zip(pred_boxes, pred_scores, pred_labels):
+                    best_iou = 0
+                    best_gt = -1
+
+                    for k, gb in enumerate(gt_boxes):
+                        iou = box_iou(pb, gb)
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_gt = k
+
+                    if (
+                        best_iou >= IOU_THRESHOLD
+                        and best_gt >= 0
+                        and pl == gt_labels[best_gt]
+                        and best_gt not in matched_gt
+                    ):
+                        TP[pl] += 1
+                        detections[pl].append((ps, 1))
+                        matched_gt.add(best_gt)
+                    else:
+                        FP[pl] += 1
+                        detections[pl].append((ps, 0))
+
+                for k, gl in enumerate(gt_labels):
+                    if k not in matched_gt:
+                        FN[gl] += 1
+
+    return TP, FP, FN, detections, gt_count
+
+
+# -------------------------------------------
+
+
+# ---------------- METRICS ----------------
+def compute_prf(TP, FP, FN):
+    print("\n====== Precision / Recall / F1 ======")
+    for cls in range(1, NUM_CLASSES + 1):
+        tp = TP[cls]
+        fp = FP[cls]
+        fn = FN[cls]
+
+        p = tp / (tp + fp + 1e-6)
+        r = tp / (tp + fn + 1e-6)
+        f1 = 2 * p * r / (p + r + 1e-6)
+
+        print(f"Class {cls} | P: {p:.4f} | R: {r:.4f} | F1: {f1:.4f}")
+
+
+def compute_ap(recalls, precisions):
+    recalls = np.concatenate(([0.0], recalls, [1.0]))
+    precisions = np.concatenate(([0.0], precisions, [0.0]))
+
+    for i in range(len(precisions) - 1, 0, -1):
+        precisions[i - 1] = max(precisions[i - 1], precisions[i])
+
+    idx = np.where(recalls[1:] != recalls[:-1])[0]
+    return np.sum((recalls[idx + 1] - recalls[idx]) * precisions[idx + 1])
+
+
+def compute_map(detections, gt_count):
+    print("\n====== Average Precision ======")
+    APs = []
+
+    for cls in range(1, NUM_CLASSES + 1):
+        if cls not in detections or gt_count[cls] == 0:
+            APs.append(0.0)
+            print(f"Class {cls} AP: 0.0000")
+            continue
+
+        dets = sorted(detections[cls], key=lambda x: -x[0])
+
+        tp, fp = 0, 0
+        precisions, recalls = [], []
+
+        for _, is_tp in dets:
+            if is_tp:
+                tp += 1
             else:
-                FP += 1
-        else:
-            FP += 1
+                fp += 1
 
-    FN = len(gt_boxes) - len(matched_gt)
-    return TP, FP, FN
+            precisions.append(tp / (tp + fp + 1e-6))
+            recalls.append(tp / (gt_count[cls] + 1e-6))
+
+        ap = compute_ap(np.array(recalls), np.array(precisions))
+
+        APs.append(ap)
+        print(f"Class {cls} AP: {ap:.4f}")
+
+    mAP = sum(APs) / len(APs)
+    print(f"\nmAP@0.5: {mAP:.4f}")
 
 
-total_TP = total_FP = total_FN = 0
+# ----------------------------------------
 
-for i in range(len(dataset)):
-    image, gt_labels, gt_boxes = dataset[i]
-    
-    gt_boxes = gt_boxes.to(DEVICE)
-    gt_labels = gt_labels.to(DEVICE)
 
-    pred_boxes, pred_labels, pred_scores = infer_one_image(
-        image_tensor=image,
-        model=model,
-        device=DEVICE
+# ---------------- MAIN -------------------
+if __name__ == "__main__":
+
+    anchors = build_all_anchors()
+
+    val_samples = load_samples(VAL_JSON, VAL_IMG_DIR)
+
+    val_dataset = DetectionDataset(
+        samples=val_samples, anchors=anchors, transform=transform
     )
-    
-    pred_boxes = pred_boxes.to(DEVICE)
-    pred_labels = pred_labels.to(DEVICE)
 
-    TP, FP, FN = evaluate_image(pred_boxes, pred_labels, gt_boxes, gt_labels)
+    val_loader = DataLoader(
+        val_dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=ssd_collate_fn
+    )
 
-    total_TP += TP
-    total_FP += FP
-    total_FN += FN
+    model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 6, NUM_CLASSES).to(DEVICE)
 
-precision = total_TP / (total_TP + total_FP + 1e-6)
-recall = total_TP / (total_TP + total_FN + 1e-6)
+    model.load_state_dict(
+        torch.load(MODEL_PATH, map_location=DEVICE, weights_only=True)["model_state"]
+    )
+    print("Model loaded")
 
-print("====== RESULTS ======")
-print("TP:", total_TP)
-print("FP:", total_FP)
-print("FN:", total_FN)
-print("Precision:", precision)
-print("Recall:", recall)
+    TP, FP, FN, detections, gt_count = evaluate(model, val_loader)
+
+    compute_prf(TP, FP, FN)
+    compute_map(detections, gt_count)

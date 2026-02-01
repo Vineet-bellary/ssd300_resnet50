@@ -10,9 +10,9 @@ from gt_matching import decode_boxes  # Ensure this uses the 0.1/0.2 variances!
 
 # Config
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-MODEL = r"ssd_model_final.pth"
+MODEL = r"best_checkpoint.pth"
 NUM_CLASSES = 4
-CONF_THRESHOLD = 0.3  # Minimum score to show a box
+CONF_THRESHOLD = 0.1  # Minimum score to show a box
 IOU_THRESHOLD = 0.4  # NMS threshold
 
 
@@ -24,7 +24,7 @@ def run_inference(image_path, model, anchors, class_names):
         print(f"Error: Could not load image at {image_path}")
         return None
     h_orig, w_orig, _ = orig_img.shape
-    img_resized = cv2.resize(orig_img, (224, 224))
+    img_resized = cv2.resize(orig_img, (300, 300))
     img_tensor = torch.from_numpy(img_resized).permute(2, 0, 1).float() / 255.0
     img_tensor = img_tensor.unsqueeze(0).to(DEVICE)
 
@@ -117,7 +117,7 @@ def infer_on_frame(frame, model, anchors, class_names):
 
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    img_resized = cv2.resize(orig_img, (224, 224))
+    img_resized = cv2.resize(orig_img, (300, 300))
     img_tensor = torch.from_numpy(img_resized).permute(2, 0, 1).float() / 255.0
     img_tensor = img_tensor.unsqueeze(0).to(DEVICE)
 
@@ -170,9 +170,7 @@ def infer_on_frame(frame, model, anchors, class_names):
 
 if __name__ == "__main__":
     # Setup
-    test_img_path = (
-        r"Object-detection-1\test\40_jpeg.rf.96c7a1c0150a9ecfc683b194fc6012f7.jpg"
-    )
+    test_img_path = r"ssd-object-detection-7\train\5KFEG1ZN0VDT_jpg.rf.bd5237001c1daaee4ac67531ec5e5e0b.jpg"
 
     class_map = {1: "knife", 2: "pistol", 3: "rifle", 4: "shotgun"}
 
@@ -180,40 +178,42 @@ if __name__ == "__main__":
 
     model = SSDModel(ResNet50Backbone(), [512, 1024, 2048], 6, NUM_CLASSES).to(DEVICE)
     print(model.heads[0].cls_conv.out_channels)
-    trained_model = torch.load(MODEL, map_location=DEVICE, weights_only=True)
+    trained_model = torch.load(MODEL, map_location=DEVICE, weights_only=True)[
+        "model_state"
+    ]
     model.load_state_dict(trained_model)
 
-    # result = run_inference(test_img_path, model, anchors, class_map)
-    # # cv2.imwrite("output.jpg", result)
-    # # Show the image in a window
-    # cv2.imshow("SSD Detection Result", result)
+    result = run_inference(test_img_path, model, anchors, class_map)
+    # cv2.imwrite("output.jpg", result)
+    # Show the image in a window
+    cv2.imshow("SSD Detection Result", result)
 
-    # # Wait for any key press
-    # print("Click on the image window and press any key to close...")
-    # cv2.waitKey(0)
+    # Wait for any key press
+    print("Click on the image window and press any key to close...")
+    cv2.waitKey(0)
 
-    # # Clean up and close the window
-    # cv2.destroyAllWindows()
+    # Clean up and close the window
+    cv2.destroyAllWindows()
 
     # -------------------- WEBCAM INFERENCE --------------------
-    print("Starting webcam... Press 'q' to quit")
+    # print("Starting webcam... Press 'q' to quit")
 
-    cap = cv2.VideoCapture(0)
-    assert cap.isOpened(), "Webcam open avvatle mama!"
+    # cap = cv2.VideoCapture(0)
+    # assert cap.isOpened(), "Webcam open avvatle mama!"
 
-    frame_count = 0
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        if frame_count % 2 == 0:  # every 2 frames
-            output = infer_on_frame(frame, model, anchors, class_map)
+    # frame_count = 0
+    # while True:
+    #     ret, frame = cap.read()
+    #     if not ret:
+    #         break
+    #     if frame_count % 2 == 0:  # every 2 frames
+    #         output = infer_on_frame(frame, model, anchors, class_map)
 
-        frame_count += 1
-        cv2.imshow("SSD Webcam Detection", output)
+    #     frame_count += 1
+    #     cv2.imshow("SSD Webcam Detection", output)
 
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+    #     if cv2.waitKey(1) & 0xFF == ord("q"):
+    #         break
 
-    cap.release()
-    cv2.destroyAllWindows()
+    # cap.release()
+    # cv2.destroyAllWindows()

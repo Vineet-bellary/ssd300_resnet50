@@ -1,12 +1,15 @@
 Object-detection-1/
-ssd-object-detection-5
+ssd-object-detection-7
 old data json
 
 __pycache__/
 *.pt
 
-# preprocessed_data_train.json
-# preprocessed_data_valid.json
+preprocessed_data_train.json
+preprocessed_data_valid.json
 
 *.pt
 *.pth
+
+
+meh.py
